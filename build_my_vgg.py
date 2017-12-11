@@ -2,7 +2,7 @@
 """
 Created on Fri Dec  8 15:30:50 2017
 
-@author: zmj
+@author: test07
 """
 
 import tensorflow as tf
@@ -19,7 +19,7 @@ logging.getLogger().setLevel(logging.INFO)
 VGG_MEAN = [103.939, 116.779, 123.68]
 
 class Model():
-    def __init__(self,epoch,batch_size,cate_size,size,momentum_rate,learning_rate,l2_rate,file_path,sess):
+    def __init__(self,epoch,batch_size,cate_size,size,momentum_rate,learning_rate,l2_rate,file_path,check_dir,sess):
         self.epoch=epoch
         self.batch_size=batch_size
         self.label_size=cate_size
@@ -30,6 +30,7 @@ class Model():
         self.file_path=file_path
         self.sess=sess
         self.counter=0
+        self.check_dir=check_dir
         temp=self.img_size/32*self.img_size/32*256
         self.w={
           'conv1_1w':tf.get_variable('w1',[3,3,3,64],initializer=tf.contrib.layers.xavier_initializer_conv2d()),
@@ -222,6 +223,7 @@ class Model():
         batch_num=int(len(all_files)/self.batch_size)
         logging.info("Batch size:"+str(self.batch_size))
         logging.info("Batch num:"+str(batch_num))
+        saver=tf.train.Saver()
         for i in range(self.epoch):
             l_all=[]
             for j in range(batch_num):
@@ -230,6 +232,8 @@ class Model():
                 l_all.append(l)
                 if j%100==0:
                     logging.info("Loss:"+str(np.mean(l_all)))
+                self.counter+=self.batch_size
+            saver.save(self.sess,self.check_dir+"model.ckpt",global_step=i+1)
             logging.info("Avg Loss:"+str(np.mean(l_all)))
             self.counter=0
 
@@ -241,13 +245,14 @@ l2_rate=0.0005
 batch_size=16
 epoch=1
 file_path=u"model//Kaggle猫狗大战 540M//train//train"
+check_dir="model//vgg_cat_dog_checkpoints//"
 ##强制使用cpu
 #config = tf.ConfigProto(
 #        device_count = {'GPU': 0}
 #    )
 #sess = tf.Session(config=config)
 sess=tf.Session()
-vgg=Model(epoch,batch_size,cate,size,momentum_rate,learning_rate,l2_rate,file_path,sess)
+vgg=Model(epoch,batch_size,cate,size,momentum_rate,learning_rate,l2_rate,file_path,check_dir,sess)
 start=time.time()
 vgg.train()
-logging.info((time.time()-start))
+logging.info("Time cost:"+str(time.time()-start))
