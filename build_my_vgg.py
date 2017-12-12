@@ -173,16 +173,16 @@ class Model():
             self.relu7 = tf.nn.dropout(self.relu7, 0.5)
 
         self.fc8 = self._fc_layer(self.relu7, "fc8")
+		#tf.clip_by_value(self.fc8, 1e-10, 1.0)  
+
         self.prob = tf.nn.softmax(self.fc8, name="prob")
         
         l2_loss=0
         for i in range(16):
-            print(self.w_names[i])
-            print(self.w[self.w_names[i]])
             l2_loss+=self.l2_params*tf.nn.l2_loss(self.w[self.w_names[i]])
-        self.loss=tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=self.y,logits=self.fc8))
+        self.loss=tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=self.y,logits=self.prob))
 
-    def load_image(self,path):
+    def load_image(self,path,show):
       # load image
       img = skimage.io.imread(path)
       img = img/ 255.0
@@ -194,19 +194,23 @@ class Model():
       crop_img = img[yy : yy + short_edge, xx : xx + short_edge]
       # resize to 224, 224
       resized_img = skimage.transform.resize(crop_img, (224, 224))
-#      plt.imshow(resized_img)
-#      plt.show()
+      if show:
+          plt.imshow(resized_img)
+          plt.show()
       return resized_img  
-    def load_imgs(self,paths):
+    def load_imgs(self,paths,show=False):
         X=[]
         Y=[]
         
         for path in paths:
-            X.append(self.load_image(path))
-            if path[:3]=="cat":##cat label:[1,0],dog label:[0,1]
+            X.append(self.load_image(path,show))
+            if path.split("\\")[-1][:3]=="cat":##cat label:[1,0],dog label:[0,1]
                 Y.append([1,0])
+#                print ("Cat"+path.split("\\")[-1][:3])
             else:
                 Y.append([0,1])
+
+#                print ("Dog"+path.split("\\")[-1][:3])
         return X,Y
         
     def train(self):
@@ -216,8 +220,8 @@ class Model():
         except:
             self.sess.run(tf.initialize_all_variables())
         all_files=[]
-        for file_name in os.listdir(file_path):
-            all_files.append(os.path.join(file_path,file_name)) 
+        for file_name in os.listdir(self.file_path):
+            all_files.append(os.path.join(self.file_path,file_name)) 
         #all_idx=[i for i in range(len(all_files))]
         np.random.shuffle(all_files)
         batch_num=int(len(all_files)/self.batch_size)
@@ -229,13 +233,43 @@ class Model():
             for j in range(batch_num):
                 X,Y=self.load_imgs(all_files[self.counter:min(self.counter+self.batch_size,len(all_files))])
                 _,l=self.sess.run([optimizer,self.loss],feed_dict={self.rgb:X,self.y:Y})
-                l_all.append(l)
-                if j%100==0:
-                    logging.info("Loss:"+str(np.mean(l_all)))
+                if not np.isnan(l):
+                    l_all.append(l)
+                if np.isnan(l):
+                    print (Y)
+                    print (self.sess.run(self.fc8,feed_dict={self.rgb:X}))
+                if (j+1)%100==0:
+                    logging.info("Loss:"+str(np.mean(l_all))+"\t The number of nan:"+str(j+1-len(l_all)))
                 self.counter+=self.batch_size
-            saver.save(self.sess,self.check_dir+"model.ckpt",global_step=i+1)
+            if not os.path.exists(self.check_dir):
+                os.makedirs(self.check_dir)
+            saver.save(self.sess,os.path.join(self.check_dir,"model.ckpt"),global_step=i+1)
             logging.info("Avg Loss:"+str(np.mean(l_all)))
             self.counter=0
+    def test(self,load_model):
+        try:
+            self.sess.run(tf.global_variables_initializer())
+        except:
+            self.sess.run(tf.initialize_all_variables())
+        saver=tf.train.Saver()
+        ckpt=tf.train.get_checkpoint_state(load_model)
+        if ckpt and ckpt.model_checkpoint_path:
+            saver.restore(self.sess,ckpt.model_checkpoint_path)
+            logging.info("Model load from"+load_model)
+        ##随机选择十个图片进行测试
+        test_idx=np.random.choice(range(25000),10)
+        test_files=[]
+        for i,file_name in enumerate(os.listdir(self.file_path)):
+            if i in test_idx:
+                test_files.append(os.path.join(self.file_path,file_name))  
+        X,Y=self.load_imgs(test_files,show=False)
+        probs=self.sess.run(self.prob,feed_dict={self.rgb:X,self.y:Y})
+        names=["cat","dog"]
+        print(Y)
+        for prob,y in zip(probs,Y):
+            cate_=np.argmax(prob)
+            real_=np.argmax(y)
+            print("Predict:It's a %s. Actual:It's a %s"%(names[cate_],names[real_]))
 
 cate=2
 size=224
@@ -243,9 +277,9 @@ momentum_rate=0.9
 learning_rate=0.01
 l2_rate=0.0005
 batch_size=16
-epoch=1
+epoch=5
 file_path=u"model//Kaggle猫狗大战 540M//train//train"
-check_dir="model//vgg_cat_dog_checkpoints//"
+check_dir="model//vgg_cat_dog_checkpoints"
 ##强制使用cpu
 #config = tf.ConfigProto(
 #        device_count = {'GPU': 0}
@@ -254,5 +288,6 @@ check_dir="model//vgg_cat_dog_checkpoints//"
 sess=tf.Session()
 vgg=Model(epoch,batch_size,cate,size,momentum_rate,learning_rate,l2_rate,file_path,check_dir,sess)
 start=time.time()
-vgg.train()
+#vgg.train()
+vgg.test(check_dir)
 logging.info("Time cost:"+str(time.time()-start))
