@@ -31,7 +31,8 @@ class Model():
         self.sess=sess
         self.counter=0
         self.check_dir=check_dir
-        temp=self.img_size/32*self.img_size/32*256
+        self.acc=0.
+        temp=self.img_size/32*self.img_size/32*512
         self.w={
           'conv1_1w':tf.get_variable('w1',[3,3,3,64],initializer=tf.contrib.layers.xavier_initializer_conv2d()),
           'conv1_2w':tf.get_variable('w2',[3,3,64,64],initializer=tf.contrib.layers.xavier_initializer_conv2d()),
@@ -43,12 +44,13 @@ class Model():
           'conv4_1w':tf.get_variable('w8',[3,3,256,512],initializer=tf.contrib.layers.xavier_initializer_conv2d()),
           'conv4_2w':tf.get_variable('w9',[3,3,512,512],initializer=tf.contrib.layers.xavier_initializer_conv2d()),
           'conv4_3w':tf.get_variable('w10',[3,3,512,512],initializer=tf.contrib.layers.xavier_initializer_conv2d()),
-          'conv5_1w':tf.get_variable('w11',[3,3,512,256],initializer=tf.contrib.layers.xavier_initializer_conv2d()),
-          'conv5_2w':tf.get_variable('w12',[3,3,256,256],initializer=tf.contrib.layers.xavier_initializer_conv2d()),
-          'conv5_3w':tf.get_variable('w13',[3,3,256,256],initializer=tf.contrib.layers.xavier_initializer_conv2d()),
+          'conv5_1w':tf.get_variable('w11',[3,3,512,512],initializer=tf.contrib.layers.xavier_initializer_conv2d()),
+          'conv5_2w':tf.get_variable('w12',[3,3,512,512],initializer=tf.contrib.layers.xavier_initializer_conv2d()),
+          'conv5_3w':tf.get_variable('w13',[3,3,512,512],initializer=tf.contrib.layers.xavier_initializer_conv2d()),
           'fc6w':tf.Variable(tf.random_normal([int(temp),4096])),
-          'fc7w':tf.Variable(tf.random_normal([4096,1000])),
-          'fc8w':tf.Variable(tf.random_normal([1000,2])),
+          'fc7w':tf.Variable(tf.random_normal([4096,4096])),
+          'fc8w':tf.Variable(tf.random_normal([4096,2])),
+#          'fc8w':tf.Variable(tf.random_normal([int(temp),2])),
           }
         self.w_names=[
           'conv1_1w',
@@ -78,11 +80,11 @@ class Model():
           'conv4_1b':tf.Variable(tf.zeros([512])),
           'conv4_2b':tf.Variable(tf.zeros([512])),
           'conv4_3b':tf.Variable(tf.zeros([512])),
-          'conv5_1b':tf.Variable(tf.zeros([256])),
-          'conv5_2b':tf.Variable(tf.zeros([256])),
-          'conv5_3b':tf.Variable(tf.zeros([256])),
+          'conv5_1b':tf.Variable(tf.zeros([512])),
+          'conv5_2b':tf.Variable(tf.zeros([512])),
+          'conv5_3b':tf.Variable(tf.zeros([512])),
           'fc6b':tf.Variable(tf.zeros([4096])),
-          'fc7b':tf.Variable(tf.zeros([1000])),
+          'fc7b':tf.Variable(tf.zeros([4096])),
           'fc8b':tf.Variable(tf.zeros([2])),
           }
         self.build(True)
@@ -173,14 +175,17 @@ class Model():
             self.relu7 = tf.nn.dropout(self.relu7, 0.5)
 
         self.fc8 = self._fc_layer(self.relu7, "fc8")
+#        self.fc8 = self._fc_layer(self.pool5, "fc8")
 		#tf.clip_by_value(self.fc8, 1e-10, 1.0)  
-
-        self.prob = tf.nn.softmax(self.fc8, name="prob")
+          
+        self.prob = tf.nn.sigmoid(self.fc8, name="prob")
         
         l2_loss=0
         for i in range(16):
             l2_loss+=self.l2_params*tf.nn.l2_loss(self.w[self.w_names[i]])
-        self.loss=tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=self.y,logits=self.prob))
+        self.loss=tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(self.y,self.fc8))
+#                                                                         logits=tf.clip_by_value(self.fc8, 1e-10, 1.)))
+                                                                         
 
     def load_image(self,path,show):
       # load image
@@ -255,9 +260,9 @@ class Model():
         ckpt=tf.train.get_checkpoint_state(load_model)
         if ckpt and ckpt.model_checkpoint_path:
             saver.restore(self.sess,ckpt.model_checkpoint_path)
-            logging.info("Model load from"+load_model)
+            logging.info("Model load from "+load_model)
         ##随机选择十个图片进行测试
-        test_idx=np.random.choice(range(25000),10)
+        test_idx=np.random.choice(range(25000),100)
         test_files=[]
         for i,file_name in enumerate(os.listdir(self.file_path)):
             if i in test_idx:
@@ -265,12 +270,17 @@ class Model():
         X,Y=self.load_imgs(test_files,show=False)
         probs=self.sess.run(self.prob,feed_dict={self.rgb:X,self.y:Y})
         names=["cat","dog"]
-        print(Y)
+        cs=[]
+        count=0
         for prob,y in zip(probs,Y):
             cate_=np.argmax(prob)
             real_=np.argmax(y)
-            print("Predict:It's a %s. Actual:It's a %s"%(names[cate_],names[real_]))
-
+            #print("Predict:It's a %s. Actual:It's a %s"%(names[cate_],names[real_]))
+            if cate_==real_:
+                count+=1
+            cs.append(cate_)
+        print(np.sum(cs))
+        self.acc=count/float(len(test_files))
 cate=2
 size=224
 momentum_rate=0.9
@@ -279,8 +289,8 @@ l2_rate=0.0005
 batch_size=16
 epoch=5
 file_path=u"model//Kaggle猫狗大战 540M//train//train"
-check_dir="model//vgg_cat_dog_checkpoints"
-##强制使用cpu
+check_dir="model//vgg_cat_dog_checkpoints2"
+#强制使用cpu
 #config = tf.ConfigProto(
 #        device_count = {'GPU': 0}
 #    )
@@ -288,6 +298,7 @@ check_dir="model//vgg_cat_dog_checkpoints"
 sess=tf.Session()
 vgg=Model(epoch,batch_size,cate,size,momentum_rate,learning_rate,l2_rate,file_path,check_dir,sess)
 start=time.time()
-#vgg.train()
-vgg.test(check_dir)
+vgg.train()
+#vgg.test(check_dir)
+logging.info("The accuracy is :"+str(vgg.acc))
 logging.info("Time cost:"+str(time.time()-start))
